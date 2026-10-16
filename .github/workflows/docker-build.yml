@@ -1,0 +1,48 @@
+name: docker-build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 校验 compose 配置
+        run: docker compose config > /dev/null && echo "compose 配置 OK"
+
+      - name: 构建两个镜像
+        run: docker compose build
+
+      - name: 启动整套服务
+        run: WEB_PORT=8080 docker compose up -d
+
+      - name: 冒烟验证
+        run: |
+          set -e
+          echo "--- 等待服务就绪 ---"
+          for i in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:8080/healthz >/dev/null 2>&1; then break; fi
+            sleep 2
+          done
+          echo "--- /healthz（经 nginx 反代）---"
+          curl -fsS http://127.0.0.1:8080/healthz; echo
+          echo "--- 前端首页 ---"
+          printf 'HTTP %s\n' "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/)"
+          echo "--- socket.io 握手（经 nginx 反代）---"
+          curl -fsS "http://127.0.0.1:8080/socket.io/?EIO=4&transport=polling" | head -c 80; echo
+          echo "--- 容器状态 ---"
+          docker compose ps
+
+      - name: 失败时输出日志
+        if: failure()
+        run: docker compose logs --no-color --tail=100
+
+      - name: 清理
+        if: always()
+        run: docker compose down -v
