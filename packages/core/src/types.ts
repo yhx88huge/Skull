@@ -59,8 +59,11 @@ export interface RoundProof {
 
 export interface PenaltyContext {
   challengerId: string;
+  /** Who must pick the disc to remove: the challenger (own skull) or the skull owner (blind pick). */
   pendingPlayerId: string;
   skullOwnerId: string | null;
+  /** Shuffled disc ids the pending player may pick from (challenger's hand + pile). */
+  candidates: string[];
 }
 
 export interface GameState {
@@ -75,6 +78,8 @@ export interface GameState {
   piles: Record<string, string[]>;
   lastChanceDiscId: string | null;
   lastChanceLastRound: number;
+  /** ownerId -> their personal supply (last-chance) disc id, fixed at game creation. */
+  supplyDiscIds: Record<string, string>;
   winnerId: string | null;
   penalty: PenaltyContext | null;
   eventIdCounter: number;
@@ -133,7 +138,7 @@ export interface GameEvent {
 
 export type GameAction =
   | { type: 'start' }
-  | { type: 'place' }
+  | { type: 'place'; discId?: string }
   | { type: 'open_bid'; amount: number }
   | { type: 'raise_bid'; amount: number }
   | { type: 'pass' }

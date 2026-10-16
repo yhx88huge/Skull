@@ -231,8 +231,14 @@ describe('last chance', () => {
     s = act(s, 'p1', { type: 'pass' });
     s = act(s, 'p2', { type: 'pass' });
     s = act(s, 'p0', { type: 'reveal', targetPlayerId: 'p0' });
-    // reveal p1's skull -> fail; blind pick removes one of p0's discs -> kept exactly one
+    // reveal p1's skull -> fail; skull owner p1 blind-picks one of p0's discs -> kept exactly one
     s = act(s, 'p0', { type: 'reveal', targetPlayerId: 'p1' });
+    expect(s.phase).toBe('PENALTY');
+    expect(s.penalty).toBeTruthy();
+    expect(s.penalty!.pendingPlayerId).toBe('p1');
+    expect(s.penalty!.challengerId).toBe('p0');
+    // blind: candidates carry no type info; p1 picks one
+    s = act(s, 'p1', { type: 'choose_penalty_disc', discId: s.penalty!.candidates[0] });
 
     const p0b = s.players.find((x) => x.id === 'p0')!;
     expect(p0b.alive).toBe(true);
@@ -245,6 +251,94 @@ describe('last chance', () => {
     expect(s.discs[s.lastChanceDiscId!].type).toBe('flower');
     expect(s.phase).toBe('INITIAL_PLACEMENT'); // next round begins, disc still valid
     expect(s.round.roundNumber).toBe(2);
+  });
+});
+
+describe('place with disc selection', () => {
+  it('places the chosen disc from hand', () => {
+    const s = start(3);
+    const p1 = s.players.find((p) => p.id === 'p1')!;
+    const skullId = p1.hand.find((id) => s.discs[id].type === 'skull')!;
+    const s2 = act(s, 'p1', { type: 'place', discId: skullId });
+    const placed = s2.piles['p1'][0];
+    expect(placed).toBe(skullId);
+    expect(s2.discs[placed].type).toBe('skull');
+    expect(s2.players.find((p) => p.id === 'p1')!.hand).not.toContain(skullId);
+  });
+
+  it('rejects placing a disc not in hand', () => {
+    const s = start(3);
+    const notMine = s.players.find((p) => p.id === 'p2')!.hand[0];
+    const bad = applyAction(s, 'p1', { type: 'place', discId: notMine }, RNG_F);
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.error).toBe('INVALID_DISC');
+  });
+});
+
+describe('blind pick by skull owner', () => {
+  it('skull owner must pick, challenger cannot pick for them', () => {
+    // craft: p0's first placed disc is a flower, p1's first placed disc is a skull
+    const g = createGame('r', mkPlayers(3), undefined, RNG_F);
+    const p1 = g.players.find((x) => x.id === 'p1')!;
+    const skull = p1.hand.find((id) => g.discs[id].type === 'skull')!;
+    p1.hand = [skull, ...p1.hand.filter((id) => id !== skull)];
+
+    let s = g;
+    const r0 = applyAction(s, 'p0', { type: 'start' });
+    if (r0.ok) s = r0.state;
+    s = initialPlacementAll(s, RNG_F);
+    s = act(s, 'p0', { type: 'open_bid', amount: 2 });
+    s = act(s, 'p1', { type: 'pass' });
+    s = act(s, 'p2', { type: 'pass' });
+    s = act(s, 'p0', { type: 'reveal', targetPlayerId: 'p0' });
+    s = act(s, 'p0', { type: 'reveal', targetPlayerId: 'p1' });
+    expect(s.phase).toBe('PENALTY');
+    expect(s.penalty!.pendingPlayerId).toBe('p1');
+    const bad = applyAction(s, 'p0', { type: 'choose_penalty_disc', discId: s.penalty!.candidates[0] }, RNG_F);
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.error).toBe('NOT_PENALTY_PLAYER');
+    const badDisc = applyAction(s, 'p1', { type: 'choose_penalty_disc', discId: 'd999' }, RNG_F);
+    expect(badDisc.ok).toBe(false);
+    s = act(s, 'p1', { type: 'choose_penalty_disc', discId: s.penalty!.candidates[0] });
+    expect(s.phase).toBe('INITIAL_PLACEMENT');
+    expect(s.round.roundNumber).toBe(2);
+  });
+});
+
+describe('rematch', () => {
+  it('start on FINISHED resets the game and deals fresh discs', () => {
+    let s = start(3);
+    const winAsP0 = (cur: GameState): GameState => {
+      let c = initialPlacementAll(cur);
+      c = act(c, 'p0', { type: 'open_bid', amount: 1 });
+      c = act(c, 'p1', { type: 'pass' });
+      c = act(c, 'p2', { type: 'pass' });
+      c = act(c, 'p0', { type: 'reveal', targetPlayerId: 'p0' });
+      return c;
+    };
+    s = winAsP0(winAsP0(s));
+    expect(s.phase).toBe('FINISHED');
+    expect(s.winnerId).toBe('p0');
+
+    const r = applyAction(s, 'p0', { type: 'start' });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const g = r.state;
+    expect(g.phase).toBe('INITIAL_PLACEMENT');
+    expect(g.round.roundNumber).toBe(1);
+    // previous winner leads the rematch
+    expect(g.round.firstPlayerId).toBe('p0');
+    for (const p of g.players) {
+      expect(p.alive).toBe(true);
+      expect(p.mat).toBe('blank');
+      expect(p.lastChanceGranted).toBe(false);
+      expect(p.hand).toHaveLength(4);
+      const types = p.hand.map((id) => g.discs[id].type);
+      expect(types.filter((t) => t === 'skull')).toHaveLength(1);
+      expect(types.filter((t) => t === 'flower')).toHaveLength(3);
+      expect(g.piles[p.id]).toHaveLength(0);
+    }
+    expect(g.winnerId).toBeNull();
   });
 });
 
@@ -297,9 +391,9 @@ describe('property: random full games', () => {
         }
       } else if (s.phase === 'PENALTY') {
         const p = s.penalty!;
-        const owner = s.players.find((x) => x.id === p.challengerId)!;
-        const own = [...owner.hand, ...s.piles[owner.id]];
-        for (const did of own) candidates.push({ id: p.pendingPlayerId, a: { type: 'choose_penalty_disc', discId: did } });
+        for (const did of p.candidates) {
+          candidates.push({ id: p.pendingPlayerId, a: { type: 'choose_penalty_disc', discId: did } });
+        }
       } else {
         break;
       }

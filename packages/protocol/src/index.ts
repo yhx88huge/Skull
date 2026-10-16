@@ -55,7 +55,7 @@ export interface PersistedIdentity {
 }
 
 export type RoomAction =
-  | { type: 'place' }
+  | { type: 'place'; discId?: string }
   | { type: 'open_bid'; amount: number }
   | { type: 'raise_bid'; amount: number }
   | { type: 'pass' }
@@ -89,17 +89,37 @@ export interface PlayerPublic {
   pileCount: number;
   /** the type of the top revealed disc on this pile, if any */
   topRevealed: DiscType | null;
+  /** how many discs on this pile are still unrevealed (drives reveal targeting) */
+  unrevealedCount: number;
   passed: boolean;
   isChallenger: boolean;
   isFirst: boolean;
   isCurrentTurn: boolean;
 }
 
+export interface SecretDisc {
+  id: string;
+  type: DiscType;
+}
+
 /** Only sent to the owning player. */
 export interface PlayerSecret {
   handTypes: DiscType[];
+  /** own hand discs with ids, so the UI can let the player pick which one to place */
+  hand: SecretDisc[];
+  /** own pile discs with ids/types (the owner placed them, so they are known) */
+  pile: SecretDisc[];
   hasLastChanceDisc: boolean;
   lastChanceDiscInHand: boolean;
+}
+
+/** Public penalty state; candidate disc ids are only filled for the pending picker. */
+export interface PenaltyView {
+  challengerId: string;
+  pendingPlayerId: string;
+  skullOwnerId: string | null;
+  /** disc ids the pending player may pick; empty array for everyone else (blind) */
+  candidates: string[];
 }
 
 export interface RoundView {
@@ -139,7 +159,10 @@ export interface RoomView {
 
 /** Full snapshot delivered to one client (includes their private info when game running). */
 export interface Snapshot extends RoomView {
+  /** the viewer's own player id — clients must key identity off this, not the nickname */
+  youPlayerId: string;
   ownSecret: PlayerSecret | null;
+  penalty: PenaltyView | null;
 }
 
 export interface ServerError {
@@ -149,8 +172,13 @@ export interface ServerError {
 
 export interface GameEndedPayload {
   winnerId: string;
+  /** 'double_flower' | 'last_standing' | 'finished' */
   reason: string;
   players: PlayerPublic[];
+  /** game wall-clock duration in ms, when known */
+  durationMs: number | null;
+  /** rounds played */
+  rounds: number;
 }
 
 export type { GameEvent, DiscType };

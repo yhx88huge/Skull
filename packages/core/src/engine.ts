@@ -21,8 +21,18 @@ const clone = (s: GameState): GameState => ({
   discs: Object.fromEntries(Object.entries(s.discs).map(([k, d]) => [k, { ...d }])),
   piles: Object.fromEntries(Object.entries(s.piles).map(([k, v]) => [k, [...v]])),
   round: { ...s.round, passedPlayerIds: [...s.round.passedPlayerIds] },
-  penalty: s.penalty ? { ...s.penalty } : null,
+  penalty: s.penalty ? { ...s.penalty, candidates: [...s.penalty.candidates] } : null,
+  supplyDiscIds: { ...s.supplyDiscIds },
 });
+
+function shuffle<T>(arr: T[], rng: Rng): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
 
 function makeEvent(s: GameState, actorId: string, type: GameEvent['type'], payload: Record<string, unknown>): GameEvent {
   return {
@@ -73,6 +83,7 @@ export function createGame(roomId: string, players: { id: string; name: string; 
     piles: {},
     lastChanceDiscId: null,
     lastChanceLastRound: 0,
+    supplyDiscIds: {},
     winnerId: null,
     penalty: null,
     eventIdCounter: 0,
@@ -114,6 +125,7 @@ export function createGame(roomId: string, players: { id: string; name: string; 
       order: 0,
       revealed: false,
     };
+    state.supplyDiscIds[p.id] = chanceId;
   }
   return state;
 }
@@ -297,6 +309,48 @@ function resolveFailure(s: GameState, challengerId: string, skullOwnerId: string
   return events;
 }
 
+/** Reset a finished game back to a fresh deal so the room can play again ("再开一局"). */
+function resetGame(s: GameState): void {
+  for (const p of s.players) {
+    p.alive = true;
+    p.mat = 'blank';
+    p.ready = true;
+    p.lastChanceGranted = false;
+    p.lastChanceActive = false;
+    p.hand = [];
+    s.piles[p.id] = [];
+  }
+  for (const d of Object.values(s.discs)) {
+    d.pileId = null;
+    d.order = 0;
+    d.revealed = false;
+    d.roundId = 0;
+    if (s.supplyDiscIds[d.ownerId] === d.id) {
+      d.location = 'supply';
+    } else {
+      d.location = 'hand';
+      const owner = s.players.find((p) => p.id === d.ownerId);
+      if (owner && !owner.hand.includes(d.id)) owner.hand.push(d.id);
+    }
+  }
+  s.lastChanceDiscId = null;
+  s.lastChanceLastRound = 0;
+  s.winnerId = null;
+  s.penalty = null;
+  s.round = {
+    roundNumber: 0,
+    firstPlayerId: null,
+    currentPlayerId: null,
+    openerId: null,
+    bidderId: null,
+    currentBid: 0,
+    challengerId: null,
+    passedPlayerIds: [],
+    revealProgress: 0,
+  };
+  s.phase = 'ROUND_SETUP';
+}
+
 function cleanupRound(s: GameState): void {
   for (const pid of Object.keys(s.piles)) {
     const pile = s.piles[pid];
@@ -321,11 +375,16 @@ export function applyAction(state: GameState, actorId: string, action: GameActio
 
   switch (action.type) {
     case 'start': {
-      if (s.phase !== 'ROUND_SETUP') return fail('WRONG_PHASE');
+      if (s.phase !== 'ROUND_SETUP' && s.phase !== 'FINISHED') return fail('WRONG_PHASE');
+      const restarting = s.phase === 'FINISHED';
+      if (restarting) resetGame(s);
       const lives = alivePlayers(s);
       if (lives.length < s.settings.minPlayers) return fail('INSUFFICIENT_PLAYERS');
       for (const p of lives) if (!p.ready) return fail('NOT_READY');
-      beginRound(s, lives, 1, lives[0].id);
+      const first = restarting && state.winnerId && lives.some((p) => p.id === state.winnerId)
+        ? state.winnerId!
+        : lives[0].id;
+      beginRound(s, lives, 1, first);
       const ev = makeEvent(s, actorId, 'ROUND_STARTED', {
         roundNumber: s.round.roundNumber,
         firstPlayerId: s.round.firstPlayerId,
@@ -339,8 +398,9 @@ export function applyAction(state: GameState, actorId: string, action: GameActio
       if (actor.id !== s.round.currentPlayerId) return fail('NOT_YOUR_TURN');
       if (!actor.alive) return fail('PLAYER_NOT_ALIVE');
       if (s.phase === 'INITIAL_PLACEMENT' && placedThisRound(s, actor.id) >= 1) return fail('PLACE_ALREADY_DONE');
-      const discId = actor.hand[0];
+      const discId = action.discId ?? actor.hand[0];
       if (!discId) return fail('NO_DISC_TO_PLACE');
+      if (!actor.hand.includes(discId)) return fail('INVALID_DISC');
       const disc = s.discs[discId];
       actor.hand = actor.hand.filter((id) => id !== discId);
       disc.location = 'stack';
@@ -462,24 +522,33 @@ export function applyAction(state: GameState, actorId: string, action: GameActio
           revealed: s.round.revealProgress,
         });
         if (top.ownerId !== actor.id) {
-          // facing another player's skull: that player blind-picks one of challenger's discs
+          // facing another player's skull: the skull owner blind-picks one of the challenger's discs
           const victim = s.players.find((p) => p.id === actor.id)!;
           const merged = [...victim.hand, ...s.piles[actor.id]];
-          if (merged.length > 0) {
-            const picked = merged[Math.floor(rng() * merged.length)];
-            removeDisc(s, picked);
+          if (merged.length === 0) {
+            // nothing to take; resolve immediately
+            const extra = resolveFailure(s, actor.id, top.ownerId, actor.id);
+            return advanceState(state, s, [ev, evFail, ...extra]);
           }
-          const evRm = makeEvent(s, actor.id, 'DISC_REMOVED', {
-            removedBy: top.ownerId,
-            fromPlayerId: actor.id,
-            blind: true,
-          });
-          const extra = resolveFailure(s, actor.id, top.ownerId, actor.id);
-          return advanceState(state, s, [ev, evFail, evRm, ...extra]);
+          s.phase = 'PENALTY';
+          s.penalty = {
+            challengerId: actor.id,
+            pendingPlayerId: top.ownerId,
+            skullOwnerId: top.ownerId,
+            candidates: shuffle(merged, rng),
+          };
+          s.round.currentPlayerId = top.ownerId;
+          return advanceState(state, s, [ev, evFail]);
         }
         // own skull: challenger secretly chooses one of his discs to remove
         s.phase = 'PENALTY';
-        s.penalty = { challengerId: actor.id, pendingPlayerId: actor.id, skullOwnerId: actor.id };
+        const ownMerged = [...actor.hand, ...s.piles[actor.id]];
+        s.penalty = {
+          challengerId: actor.id,
+          pendingPlayerId: actor.id,
+          skullOwnerId: actor.id,
+          candidates: shuffle(ownMerged, rng),
+        };
         s.round.currentPlayerId = actor.id;
         return advanceState(state, s, [ev, evFail]);
       }
@@ -524,12 +593,18 @@ export function applyAction(state: GameState, actorId: string, action: GameActio
       const ctx = s.penalty;
       if (!ctx) return fail('WRONG_PHASE');
       if (ctx.pendingPlayerId !== actor.id) return fail('NOT_PENALTY_PLAYER');
+      if (!ctx.candidates.includes(action.discId)) return fail('INVALID_DISC');
       const disc = s.discs[action.discId];
       if (!disc || disc.ownerId !== ctx.challengerId) return fail('INVALID_DISC');
+      const blind = ctx.pendingPlayerId !== ctx.challengerId;
       removeDisc(s, action.discId);
-      const ev = makeEvent(s, actor.id, 'DISC_REMOVED', { removedBy: actor.id, fromPlayerId: ctx.challengerId, blind: false });
-      const extra = resolveFailure(s, ctx.challengerId, ctx.skullOwnerId, actor.id);
+      const ev = makeEvent(s, actor.id, 'DISC_REMOVED', {
+        removedBy: actor.id,
+        fromPlayerId: ctx.challengerId,
+        blind,
+      });
       s.penalty = null;
+      const extra = resolveFailure(s, ctx.challengerId, ctx.skullOwnerId, actor.id);
       return advanceState(state, s, [ev, ...extra]);
     }
   }
