@@ -41,6 +41,43 @@ if ! docker compose version >/dev/null 2>&1; then
 fi
 docker compose version
 
+# ---------- 2.5 镜像加速器（国内 ECS 直连 Docker Hub 常超时） ----------
+if [ -n "${DOCKER_MIRROR:-}" ]; then
+  MIRRORS="\"$DOCKER_MIRROR\""
+  log "使用指定的镜像加速器: $DOCKER_MIRROR"
+elif [ -f /etc/docker/daemon.json ] && grep -q registry-mirrors /etc/docker/daemon.json; then
+  MIRRORS=""
+  log "已配置 registry-mirrors，跳过"
+else
+  log "探测可用的镜像加速器"
+  MIRRORS=""
+  for m in https://docker.m.daocloud.io https://docker.mirrors.ustc.edu.cn \
+           https://docker.nju.edu.cn https://hub-mirror.c.163.com https://mirror.baidubce.com; do
+    code=$(curl -s -o /dev/null -m 8 -w '%{http_code}' "$m/v2/" 2>/dev/null || echo 000)
+    case "$code" in
+      200|401|403)
+        echo "  可用: $m"
+        if [ -z "$MIRRORS" ]; then MIRRORS="\"$m\""; else MIRRORS="$MIRRORS,\"$m\""; fi
+        ;;
+    esac
+  done
+fi
+
+if [ -n "$MIRRORS" ]; then
+  [ -f /etc/docker/daemon.json ] && cp /etc/docker/daemon.json /etc/docker/daemon.json.bak
+  mkdir -p /etc/docker
+  printf '{\n  "registry-mirrors": [%s]\n}\n' "$MIRRORS" > /etc/docker/daemon.json
+  systemctl restart docker
+  for i in $(seq 1 30); do docker info >/dev/null 2>&1 && break; sleep 2; done
+  echo "镜像加速器已生效"
+elif [ -z "${DOCKER_MIRROR:-}" ]; then
+  echo
+  echo "!! 没有探测到可用的加速器，构建很可能失败。"
+  echo "!! 建议到华为云控制台 -> 容器镜像服务 SWR -> 镜像加速器，复制专属地址后执行："
+  echo "   DOCKER_MIRROR=https://<你的加速器地址> bash scripts/ecs-bootstrap.sh ${PORT}"
+  echo
+fi
+
 # ---------- 3. 构建 ----------
 log "构建镜像（首次约 3-8 分钟）"
 WEB_PORT="$PORT" docker compose build

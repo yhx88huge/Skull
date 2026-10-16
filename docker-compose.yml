@@ -3,6 +3,11 @@ services:
     build:
       context: .
       target: server
+      # 拉不到 Docker Hub 时，用镜像站地址覆盖，例如
+      #   NODE_IMAGE=swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/library/node:24-bookworm
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:24-bookworm}
+        NODE_SLIM_IMAGE: ${NODE_SLIM_IMAGE:-node:24-bookworm-slim}
     # 只监听宿主机回环，外部一律走 nginx 反代；需要直连调试时改成 "3000:3000"
     ports:
       - "127.0.0.1:3000:3000"
@@ -36,6 +41,8 @@ services:
     build:
       context: .
       target: web
+      args:
+        NGINX_IMAGE: ${NGINX_IMAGE:-nginx:alpine}
     # 默认用 8080：中国大陆 ECS 的 80/443 需要域名备案才能对外访问。
     # 若已完成备案并解析了域名，改成 "80:80" 即可。
     ports:
