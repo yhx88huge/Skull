@@ -1,0 +1,14 @@
+{
+  "name": "skull-online",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm --workspace @skull/client run dev",
+    "build": "npm --workspace @skull/client run build",
+    "preview": "npm --workspace @skull/client run preview"
+  }
+}
