@@ -24,15 +24,15 @@ export default function ActionBar({ game, onPlace, onOpenBid, onRaise, onPass }:
           <i />
         </span>
         等待 <b>{acting?.name}</b>
-        {(stage === 'BIDDING' || stage === 'OPEN') && ' 行动…'}
-        {(stage === 'PLACEMENT') && ' 暗置圆片…'}
+        {(stage === 'BIDDING' || stage === 'ACTION') && ' 行动…'}
+        {(stage === 'INITIAL_PLACEMENT') && ' 暗置圆片…'}
       </div>
     );
   }
 
   return (
     <div className="actionbar">
-      {stage === 'PLACEMENT' && (
+      {stage === 'INITIAL_PLACEMENT' && (
         <>
           <div className="ab-hint">暗置一枚圆片 — 背面朝上放入你的牌堆</div>
           <button className="btn btn-primary btn-lg" onClick={onPlace} disabled={totalStashed >= 4}>
@@ -41,7 +41,7 @@ export default function ActionBar({ game, onPlace, onOpenBid, onRaise, onPass }:
         </>
       )}
 
-      {stage === 'OPEN' && (
+      {stage === 'ACTION' && (
         <>
           <div className="ab-hint">
             报出你能安全翻开的圆片数，上限 {totalStashed}
@@ -85,7 +85,7 @@ export default function ActionBar({ game, onPlace, onOpenBid, onRaise, onPass }:
           点击场上高亮发光的目标牌堆，逐张揭示圆片
         </div>
       )}
-      {(stage === 'SETTLED' || stage === 'FINISHED') && (
+      {(stage === 'ROUND_CLEANUP' || stage === 'FINISHED') && (
         <div className="ab-hint">{game.lastEvent}</div>
       )}
     </div>

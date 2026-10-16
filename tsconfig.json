@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "baseUrl": ".",
+    "paths": {
+      "@skull/core": ["packages/core/src"],
+      "@skull/protocol": ["packages/protocol/src"]
+    }
+  },
+  "references": [
+    { "path": "packages/core" },
+    { "path": "packages/protocol" }
+  ]
+}

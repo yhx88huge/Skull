@@ -1,0 +1,10 @@
+
+ RUN  v3.2.7 E:/Skull/packages/core
+
+ ✓ src/engine.test.ts (16 tests) 11ms
+
+ Test Files  1 passed (1)
+      Tests  16 passed (16)
+   Start at  00:19:37
+   Duration  3.43s (transform 283ms, setup 0ms, collect 302ms, tests 11ms, environment 0ms, prepare 260ms)
+

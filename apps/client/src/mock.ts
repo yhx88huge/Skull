@@ -18,7 +18,7 @@ export function freshGame(): GameState {
     hue: [28, 200, 320, 160, 45, 220][i],
   }));
   return {
-    stage: 'SETUP',
+    stage: 'ROUND_SETUP',
     round: 1,
     currentTurnId: 'p0',
     selfTurn: true,

@@ -1,3 +1,5 @@
+import type { Phase } from '@skull/core';
+
 export type Screen = 'lobby' | 'room' | 'game';
 
 export interface RoomPlayer {
@@ -8,15 +10,6 @@ export interface RoomPlayer {
 }
 
 export type MatSide = 'blank' | 'flower';
-
-export type RoundStage =
-  | 'SETUP'
-  | 'PLACEMENT'
-  | 'OPEN'
-  | 'BIDDING'
-  | 'REVEAL'
-  | 'SETTLED'
-  | 'FINISHED';
 
 export interface GamePlayer {
   id: string;
@@ -32,7 +25,7 @@ export interface GamePlayer {
 }
 
 export interface GameState {
-  stage: RoundStage;
+  stage: Phase;
   round: number;
   currentTurnId: string;
   selfTurn: boolean;

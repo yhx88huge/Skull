@@ -6,7 +6,7 @@ interface Props {
   nickname: string;
   onNickname: (v: string) => void;
   onCreate: () => void;
-  onJoin: () => void;
+  onJoin: (code: string) => void;
 }
 
 export default function LobbyScreen({ nickname, onNickname, onCreate, onJoin }: Props) {
@@ -15,7 +15,7 @@ export default function LobbyScreen({ nickname, onNickname, onCreate, onJoin }: 
 
   const submitJoin = (e: FormEvent) => {
     e.preventDefault();
-    onJoin();
+    if (code.length >= 6) onJoin(code.toUpperCase());
   };
 
   return (
