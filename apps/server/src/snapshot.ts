@@ -1,5 +1,5 @@
 import type { GameState, GameEvent, Player } from '@skull/core';
-import type { PlayerPublic, PlayerSecret, RoomView, RoundView, BoardView, Snapshot } from '@skull/protocol';
+import type { PlayerPublic, PlayerSecret, PenaltyView, RoomView, RoundView, BoardView, Snapshot } from '@skull/protocol';
 import type { Room } from './roomManager';
 
 function playerPublic(room: Room, p: Room['players'][number]): PlayerPublic {
@@ -7,12 +7,14 @@ function playerPublic(room: Room, p: Room['players'][number]): PlayerPublic {
   const cp: Player | undefined = g?.players.find((x) => x.id === p.id);
   const pile = g?.piles[p.id] ?? [];
   let topRevealed: PlayerPublic['topRevealed'] = null;
+  let unrevealedCount = 0;
   if (cp && pile.length > 0) {
     for (let i = pile.length - 1; i >= 0; i--) {
       const d = g!.discs[pile[i]];
       if (d.revealed) {
-        topRevealed = d.type;
-        break;
+        if (topRevealed === null) topRevealed = d.type;
+      } else {
+        unrevealedCount += 1;
       }
     }
   }
@@ -29,6 +31,7 @@ function playerPublic(room: Room, p: Room['players'][number]): PlayerPublic {
     handCount: cp ? cp.hand.length : 0,
     pileCount: pile.length,
     topRevealed,
+    unrevealedCount,
     passed: g ? g.round.passedPlayerIds.includes(p.id) : false,
     isChallenger: g ? g.round.challengerId === p.id : false,
     isFirst: g ? g.round.firstPlayerId === p.id : false,
@@ -102,17 +105,36 @@ export function buildSecret(room: Room, playerId: string): PlayerSecret | null {
   if (!g) return null;
   const cp = g.players.find((x: { id: string }) => x.id === playerId);
   if (!cp) return null;
+  const pile = g.piles[playerId] ?? [];
   return {
     handTypes: cp.hand.map((id: string) => g.discs[id].type),
+    hand: cp.hand.map((id: string) => ({ id, type: g.discs[id].type })),
+    pile: pile.map((id: string) => ({ id, type: g.discs[id].type })),
     hasLastChanceDisc: g.lastChanceDiscId !== null,
     lastChanceDiscInHand: cp.hand.includes(g.lastChanceDiscId ?? ''),
+  };
+}
+
+export function buildPenaltyView(room: Room, viewerId: string): PenaltyView | null {
+  const g = room.game;
+  if (!g || !g.penalty) return null;
+  const ctx = g.penalty;
+  return {
+    challengerId: ctx.challengerId,
+    pendingPlayerId: ctx.pendingPlayerId,
+    skullOwnerId: ctx.skullOwnerId,
+    // candidate disc ids are only disclosed to the player who must pick;
+    // for a blind pick the ids carry no type information on the wire.
+    candidates: ctx.pendingPlayerId === viewerId ? [...ctx.candidates] : [],
   };
 }
 
 export function buildSnapshot(room: Room, playerId: string): Snapshot {
   return {
     ...buildRoomView(room),
+    youPlayerId: playerId,
     ownSecret: buildSecret(room, playerId),
+    penalty: buildPenaltyView(room, playerId),
   };
 }
 

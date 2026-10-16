@@ -1,13 +1,54 @@
 import type { Server } from 'socket.io';
 import { C2S, S2C } from '@skull/protocol';
-import type { RoomAction } from '@skull/protocol';
+import type { GameEndedPayload, RoomAction } from '@skull/protocol';
 import type { Lobby } from './lobby';
 import type { Room } from './roomManager';
+import { TurnTimer, autoAction } from './timer';
+import { env } from './env';
 
 const id = () => Math.random().toString(36).slice(2, 12);
 
 export function attachGateway(io: Server, lobby: Lobby): void {
   lobby.setOnChange((room) => emitRoomState(io, lobby, room));
+
+  const timer = new TurnTimer(lobby, (code) => {
+    void handleTimeout(code);
+  });
+
+  async function handleTimeout(code: string): Promise<void> {
+    const room = lobby.get(code);
+    if (!room?.game) return;
+    const auto = autoAction(room.game);
+    if (!auto) return;
+    const result = await lobby.action(code, auto.playerId, `auto_${id()}`, auto.action as RoomAction);
+    if (!result.ok) return;
+    afterAction(code, result.events);
+  }
+
+  /** Broadcast action events + fresh snapshots + (possibly) the game-end payload, then re-arm the timer. */
+  function afterAction(
+    code: string,
+    events: { id: string; stateVersion: number; actorId: string; type: string; payload: Record<string, unknown> }[],
+  ): void {
+    const room = lobby.get(code);
+    if (!room) return;
+    for (const ev of events) {
+      io.to(roomCodeName(code)).emit(S2C.gameEvent, ev);
+    }
+    emitRoomState(io, lobby, room);
+    if (room.game?.phase === 'FINISHED' && room.game.winnerId) {
+      const ended = events.find((e) => e.type === 'GAME_ENDED');
+      const reason = String(ended?.payload?.reason ?? 'finished');
+      io.to(roomCodeName(code)).emit(S2C.gameEnded, buildGameEnded(room, reason));
+    }
+    timer.refresh(code);
+  }
+
+  // re-arm timers for rooms restored from the store
+  for (const room of lobby.listRooms()) {
+    timer.refresh(room.code);
+  }
+
   io.on('connection', (socket) => {
     const sdata = socket.data as { playerId?: string; roomCode?: string; roomId?: string };
 
@@ -15,6 +56,9 @@ export function attachGateway(io: Server, lobby: Lobby): void {
       try {
         const name = String(payload.name ?? '旅人').trim().slice(0, 12) || '旅人';
         const settings = typeof payload.settings === 'object' && payload.settings ? (payload.settings as any) : {};
+        if (settings.turnTimerSeconds === undefined && env.turnTimerSeconds > 0) {
+          settings.turnTimerSeconds = env.turnTimerSeconds;
+        }
         const room = await lobby.create(name, settings);
         const host = room.players[0];
         sdata.playerId = host.id;
@@ -62,6 +106,23 @@ export function attachGateway(io: Server, lobby: Lobby): void {
       }
     });
 
+    socket.on(C2S.roomLeave, async () => {
+      const code = sdata.roomCode;
+      const pid = sdata.playerId;
+      if (!code || !pid) return;
+      try {
+        const room = await lobby.leave(code, pid);
+        await socket.leave(roomCodeName(code));
+        sdata.playerId = undefined;
+        sdata.roomCode = undefined;
+        socket.emit(S2C.kicked, { reason: 'left' });
+        emitRoomState(io, lobby, room);
+        timer.refresh(code);
+      } catch (e) {
+        socket.emit(S2C.roomError, { code: codeOf(e), message: msgOf(e) });
+      }
+    });
+
     socket.on(C2S.roomReady, async (payload: { ready?: boolean }) => {
       await guard(async (code, pid) => {
         await lobby.ready(code, pid, !!payload.ready);
@@ -72,7 +133,8 @@ export function attachGateway(io: Server, lobby: Lobby): void {
       await guard(async (code, pid) => {
         try {
           const room = await lobby.start(code, pid);
-          emitGamestate(io, lobby, room);
+          emitRoomState(io, lobby, room);
+          timer.refresh(code);
         } catch (e) {
           socket.emit(S2C.roomError, { code: codeOf(e), message: msgOf(e) });
         }
@@ -87,20 +149,7 @@ export function attachGateway(io: Server, lobby: Lobby): void {
           socket.emit(S2C.roomError, { code: result.error, message: friendlyError(result.error), actionId });
           return;
         }
-        const room = lobby.get(code);
-        if (!room) return;
-        // public engine events for everyone
-        for (const ev of result.events) {
-          io.to(roomCodeName(code)).emit(S2C.gameEvent, ev);
-        }
-        emitRoomState(io, lobby, room);
-        if (room.game?.phase === 'FINISHED' && room.game.winnerId) {
-          io.to(roomCodeName(code)).emit(S2C.gameEnded, {
-            winnerId: room.game.winnerId,
-            reason: 'finished',
-            players: room.players,
-          });
-        }
+        afterAction(code, result.events);
       });
     });
 
@@ -121,6 +170,25 @@ export function attachGateway(io: Server, lobby: Lobby): void {
           const room = lobby.get(code);
           if (room) emitRoomState(io, lobby, room);
         }, 20);
+        // reconnect grace (design §6.3): free the seat if the room never started,
+        // mid-game the seat stays reserved for the full grace window.
+        const grace = setTimeout(async () => {
+          const room = lobby.get(code);
+          const p = room?.players.find((x) => x.id === pid);
+          if (!room || !p || p.connected) return;
+          if (room.game && room.game.phase !== 'FINISHED') {
+            // still in play — keep the seat, the turn timer handles stalling
+            return;
+          }
+          try {
+            await lobby.leave(code, pid);
+            const after = lobby.get(code);
+            if (after) emitRoomState(io, lobby, after);
+          } catch {
+            /* room gone */
+          }
+        }, env.reconnectGraceMs);
+        if (typeof grace.unref === 'function') grace.unref();
       }
     });
 
@@ -145,6 +213,38 @@ function roomCodeName(code: string) {
   return `room:${code}`;
 }
 
+function buildGameEnded(room: Room, reason: string): GameEndedPayload {
+  const g = room.game;
+  return {
+    winnerId: g?.winnerId ?? '',
+    reason,
+    players: room.players.map((p) => {
+      const cp = g?.players.find((x) => x.id === p.id);
+      return {
+        id: p.id,
+        name: p.name,
+        seat: p.seat,
+        connected: p.connected,
+        ready: p.ready,
+        alive: cp?.alive ?? true,
+        mat: cp?.mat ?? 'blank',
+        lastChanceGranted: cp?.lastChanceGranted ?? false,
+        lastChanceActive: cp?.lastChanceActive ?? false,
+        handCount: cp ? cp.hand.length : 0,
+        pileCount: g ? (g.piles[p.id] ?? []).length : 0,
+        topRevealed: null,
+        unrevealedCount: 0,
+        passed: false,
+        isChallenger: false,
+        isFirst: false,
+        isCurrentTurn: false,
+      };
+    }),
+    durationMs: room.gameStartedAt ? Date.now() - room.gameStartedAt : null,
+    rounds: g?.round.roundNumber ?? 0,
+  };
+}
+
 /** Broadcast updated room state (with private secrets) to every member socket. */
 function emitRoomState(io: Server, lobby: Lobby, room: Room): void {
   const socketIds = io.sockets.adapter.rooms.get(roomCodeName(room.code));
@@ -155,13 +255,6 @@ function emitRoomState(io: Server, lobby: Lobby, room: Room): void {
     const pid = (s.data as { playerId?: string }).playerId ?? '';
     const snap = lobby.snapshot(room.code, pid);
     if (snap) s.emit(S2C.roomState, snap);
-  }
-}
-
-function emitGamestate(io: Server, lobby: Lobby, room: Room): void {
-  emitRoomState(io, lobby, room);
-  if (room.game?.phase === 'FINISHED' && room.game.winnerId) {
-    io.to(roomCodeName(room.code)).emit(S2C.gameEnded, { winnerId: room.game.winnerId, reason: 'finished' });
   }
 }
 

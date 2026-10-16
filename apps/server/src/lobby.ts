@@ -89,10 +89,19 @@ export class Lobby {
   async leave(code: string, playerId: string): Promise<Room> {
     const room = this.get(code);
     if (!room) throw new Error('ROOM_NOT_FOUND');
-    leaveRoom(room, playerId);
+    // mid-game quit is treated as a disconnect: the seat (and discs) stay in play
+    if (room.game && room.game.phase !== 'FINISHED') {
+      disconnect(room, playerId);
+    } else {
+      leaveRoom(room, playerId);
+    }
     await this.store.save(room);
     this.onChange(room);
     return room;
+  }
+
+  listRooms(): Room[] {
+    return [...this.rooms.values()];
   }
 
   async ready(code: string, playerId: string, ready: boolean): Promise<Room> {

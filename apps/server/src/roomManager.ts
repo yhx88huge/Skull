@@ -30,6 +30,8 @@ export interface Room {
   appliedActionIds: Map<string, number>;
   /** reconnect-ish bookkeeping */
   lastActiveAt: number;
+  /** when the current/last game started (for settlement duration) */
+  gameStartedAt: number | null;
 }
 
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -60,6 +62,7 @@ export function createRoom(hostName: string, settings: Partial<RoomSettings> = {
     game: null,
     appliedActionIds: new Map(),
     lastActiveAt: Date.now(),
+    gameStartedAt: null,
   };
   const host = addPlayer(room, hostName);
   room.hostId = host.id;
@@ -139,7 +142,21 @@ function syncCorePlayers(room: Room): void {
 
 export function startGame(room: Room, hostId: string): GameActionResult | null {
   if (room.hostId !== hostId) return null;
-  if (room.game) return null;
+
+  // rematch: previous game finished -> reset & deal again
+  if (room.game) {
+    if (room.game.phase !== 'FINISHED') return null;
+    const res = engineApply(room.game, hostId, { type: 'start' });
+    if (res.ok) {
+      room.game = res.state;
+      room.appliedActionIds.clear();
+      room.gameStartedAt = Date.now();
+      room.stateVersion += 1;
+      syncCorePlayers(room);
+    }
+    return res;
+  }
+
   const connected = room.players.filter((p) => p.connected);
   if (connected.length < room.settings.minPlayers) return null;
   if (!connected.every((p) => p.ready)) return null;
@@ -151,6 +168,7 @@ export function startGame(room: Room, hostId: string): GameActionResult | null {
     return res;
   }
   room.game = res.state;
+  room.gameStartedAt = Date.now();
   room.stateVersion += 1;
   return res;
 }
@@ -189,6 +207,7 @@ export function deserializeRoom(raw: any): Room {
     ...raw,
     players: raw.players ?? [],
     appliedActionIds: new Map(raw.appliedActionIds ?? []),
+    gameStartedAt: raw.gameStartedAt ?? null,
   };
 }
 
