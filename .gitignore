@@ -25,3 +25,9 @@ Thumbs.db
 
 # Test / coverage
 coverage/
+
+# Runtime data (file store fallback)
+data/
+
+# Agent workspace memory
+.workbuddy/

@@ -5,6 +5,7 @@
 ### 1. 环境准备
 
 #### 1.1 ECS 规格建议
+
 - **实例类型**: 通用型 s6 或计算型 c6
 - **CPU**: 2 核以上
 - **内存**: 4 GB 以上
@@ -12,7 +13,9 @@
 - **带宽**: 按需选择(建议 5Mbps 以上)
 
 #### 1.2 安全组配置
+
 开放以下端口:
+
 - **80**: HTTP (nginx)
 - **443**: HTTPS (nginx,可选)
 - **3000**: 服务端端口(仅内网访问)
@@ -38,17 +41,25 @@ scp -r . user@your-ecs-ip:/app/skull
 # 4. 创建环境变量文件
 cat > .env << EOF
 DATABASE_URL=postgresql://user:password@localhost:5432/skull
-TURN_TIMER_SECONDS=60
+# 行动计时: 0 = 关闭(默认), 也可 30 / 60 / 90
+TURN_TIMER_SECONDS=0
 RECONNECT_GRACE_MS=60000
 CORS_ORIGIN=*
 EOF
 
-# 5. 启动服务
+# 5. 启动服务(两个容器: server=WebSocket 服务, web=前端静态站 + 反向代理)
 docker-compose up -d
 
 # 6. 查看日志
 docker-compose logs -f
 ```
+
+镜像说明:
+
+- `server`: 由 `Dockerfile` 的 `server` 阶段构建,直接以 `tsx` 运行 TypeScript 源码。
+- `web`: 由 `web` 阶段构建,把 `apps/client/dist` 放进 nginx 容器,80 端口提供页面,并把    
+  `/socket.io/` 与 `/healthz` 反向代理到 `server:3000`。
+- 未配置 `DATABASE_URL` 时使用文件存储,数据落在 `skull-data` 卷的 `/app/data`。
 
 #### 方式二: 直接运行
 
@@ -68,23 +79,26 @@ sudo npm install -g pm2
 export DATABASE_URL=postgresql://user:password@localhost:5432/skull
 export PORT=3000
 
-# 5. 构建并启动
+# 5. 构建并启动(仓库使用 npm workspaces,不是 pnpm)
 npm install
-npm run build
-npm run start
+npm run build          # 构建前端到 apps/client/dist
+npm run start          # 以 tsx 运行服务端
 
 # 6. 使用 PM2 守护进程
-pm2 start apps/server/dist/index.js --name skull-server
+pm2 start npx --name skull-server -- tsx apps/server/src/index.ts
 pm2 save
 ```
 
 ### 3. 域名配置
 
 #### 3.1 申请域名
+
 在华为云域名服务注册域名,例如 `skull.example.com`
 
 #### 3.2 DNS 解析
+
 在华为云 DNS 控制台添加:
+
 - 类型: A 记录
 - 主机记录: @
 - 值: ECS 公网 IP
@@ -106,12 +120,14 @@ sudo crontab -e
 ### 4. 监控与运维
 
 #### 4.1 健康检查
+
 ```bash
 curl http://localhost:3000/healthz
 # 返回: {"ok":true,"ts":...}
 ```
 
 #### 4.2 日志查看
+
 ```bash
 # Docker
 docker-compose logs -f server
@@ -121,6 +137,7 @@ pm2 logs skull-server
 ```
 
 #### 4.3 备份策略
+
 ```bash
 # PostgreSQL 备份
 pg_dump $DATABASE_URL > backup_$(date +%Y%m%d).sql
@@ -129,7 +146,9 @@ pg_dump $DATABASE_URL > backup_$(date +%Y%m%d).sql
 ### 5. 性能调优
 
 #### 5.1 连接数限制
+
 在 nginx.conf 中调整:
+
 ```nginx
 worker_processes auto;
 worker_rlimit_nofile 65535;
@@ -141,6 +160,7 @@ events {
 ```
 
 #### 5.2 内存优化
+
 ```bash
 # 调整 swap
 sudo fallocate -l 2G /swapfile
@@ -151,12 +171,12 @@ sudo swapon /swapfile
 
 ### 6. 故障排查
 
-| 问题 | 解决方案 |
-|------|----------|
-| 服务无法启动 | 检查 `docker-compose logs` 或 `pm2 logs` |
-| 端口不通 | 检查安全组配置 |
-| 数据库连接失败 | 检查 DATABASE_URL 环境变量 |
-| WebSocket 连接失败 | 检查 nginx 代理配置 |
+| 问题             | 解决方案                                  |
+| -------------- | ------------------------------------- |
+| 服务无法启动         | 检查 `docker-compose logs` 或 `pm2 logs` |
+| 端口不通           | 检查安全组配置                               |
+| 数据库连接失败        | 检查 DATABASE_URL 环境变量                  |
+| WebSocket 连接失败 | 检查 nginx 代理配置                         |
 
 ### 7. 扩展建议
 

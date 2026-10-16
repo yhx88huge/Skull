@@ -8,7 +8,12 @@
   ],
   "scripts": {
     "dev": "npm --workspace @skull/client run dev",
+    "dev:server": "npm --workspace @skull/server run dev",
     "build": "npm --workspace @skull/client run build",
-    "preview": "npm --workspace @skull/client run preview"
+    "preview": "npm --workspace @skull/client run preview",
+    "start": "npm --workspace @skull/server run start",
+    "test": "npm --workspace @skull/core run test && npm --workspace @skull/server run test",
+    "typecheck": "npm --workspace @skull/server run build && npm --workspace @skull/client exec tsc --noEmit",
+    "sim": "tsx tools/sim/simulate.ts"
   }
 }
