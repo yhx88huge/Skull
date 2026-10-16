@@ -108,6 +108,10 @@ export class GameSocket {
     this.socket?.emit(C2S.roomReady, { ready });
   }
 
+  leaveRoom(): void {
+    this.socket?.emit(C2S.roomLeave);
+  }
+
   startGame(): void {
     this.socket?.emit(C2S.roomStart);
   }

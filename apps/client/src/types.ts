@@ -17,11 +17,19 @@ export interface GamePlayer {
   mat: MatSide;
   handLeft: number;
   stash: number;
+  unrevealedCount: number;
   topRevealed: 'flower' | 'skull' | null;
   passed: boolean;
   alive: boolean;
   isSelf: boolean;
   hue: number;
+}
+
+/** Stable 1..6 hue bucket from a player id (works for `p_xxxx` style ids). */
+export function hueOf(id: string): number {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return (h % 6) + 1;
 }
 
 export interface GameState {

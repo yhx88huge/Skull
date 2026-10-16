@@ -1024,3 +1024,118 @@ input:focus {
     width: 100%;
   }
 }
+/* ---- event ticker in game header ---- */
+.game-event-line {
+  flex: 1;
+  text-align: center;
+  font-size: 12px;
+  color: var(--gold, #c9a86a);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.9;
+}
+
+.center-event {
+  margin-top: 8px;
+}
+
+/* ---- own hand strip & disc picker ---- */
+.hand-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.hand-strip-label {
+  font-size: 12px;
+  opacity: 0.75;
+  margin-right: 4px;
+}
+
+.hand-disc {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 2px solid #4a3f3a;
+  background: radial-gradient(circle at 35% 30%, #3a2f28, #211a15);
+  color: var(--bone, #e8ded0);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+
+.hand-disc svg {
+  width: 24px;
+  height: 24px;
+}
+
+.hand-disc:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+
+.hand-disc-flower {
+  color: #a8c486;
+}
+
+.hand-disc-skull {
+  color: #e8ded0;
+}
+
+.hand-disc-back {
+  background: radial-gradient(circle at 35% 30%, #33455e, #1c2635);
+  border-color: #4a5a74;
+  color: #9fb2cc;
+  font-weight: 700;
+  font-size: 18px;
+}
+
+.hand-disc-sel,
+.hand-disc:not(:disabled):hover {
+  transform: translateY(-3px);
+  border-color: var(--gold-bright, #e6c88a);
+  box-shadow: 0 4px 14px rgba(230, 200, 138, 0.25);
+}
+
+.penalty-strip {
+  margin-top: 6px;
+}
+
+/* ---- settlement panel ---- */
+.settle-panel {
+  margin: 16px auto;
+  max-width: 520px;
+  width: calc(100% - 32px);
+  background: linear-gradient(160deg, #241d18, #171310);
+  border: 1px solid #4a3f3a;
+  border-radius: 14px;
+  padding: 20px 24px;
+  text-align: center;
+  color: var(--bone, #e8ded0);
+}
+
+.settle-panel h2 {
+  margin: 0 0 8px;
+  color: var(--gold-bright, #e6c88a);
+}
+
+.settle-panel p {
+  margin: 0 0 12px;
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+.settle-stats {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  font-size: 12px;
+  display: grid;
+  gap: 4px;
+  opacity: 0.9;
+}

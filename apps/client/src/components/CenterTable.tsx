@@ -12,13 +12,7 @@ const STAGE_LABEL: Record<string, string> = {
   FINISHED: '本局终了',
 };
 
-export default function CenterTable({
-  game,
-  onNextStage,
-}: {
-  game: GameState;
-  onNextStage: () => void;
-}) {
+export default function CenterTable({ game }: { game: GameState }) {
   const { stage, round, currentBid, totalStashed, challengerId, revealProgress, revealTarget } = game;
   const boss = game.players.find((p) => p.id === game.bossBidderId);
 
@@ -66,31 +60,16 @@ export default function CenterTable({
           </div>
         )}
 
-        {stage === 'ROUND_SETUP' && (
-          <button className="btn btn-primary" onClick={onNextStage}>
-            开始第一轮
-          </button>
-        )}
+        {stage === 'ROUND_SETUP' && <p className="center-tip">准备新一轮…</p>}
         {stage === 'ACTION' && (
-          <p className="center-tip">由你开启本轮的报价面纱</p>
+          <p className="center-tip">追加一枚圆片，或开启本轮报价</p>
         )}
         {stage === 'INITIAL_PLACEMENT' && <p className="center-tip">所有人各暗置一枚圆片</p>}
-        {(stage === 'ROUND_CLEANUP' || stage === 'FINISHED') && (
-          <div className={`settle-banner ${game.settle === 'win' ? 'settle-win' : 'settle-lose'}`}>
-            {game.settle === 'lose' && '翻到骷髅 —— 挑战失败'}
-            {game.settle === 'win' && stage === 'ROUND_CLEANUP' && '挑战成功，垫子翻到花面'}
-            {game.settle === 'win' && stage === 'FINISHED' && '第二次翻花成功 —— 本局你赢了！'}
-            {stage === 'ROUND_CLEANUP' && (
-              <button className="btn btn-outline btn-sm" onClick={onNextStage}>
-                下一轮
-              </button>
-            )}
-            {stage === 'FINISHED' && (
-              <button className="btn btn-primary btn-sm" onClick={onNextStage}>
-                再来一局
-              </button>
-            )}
-          </div>
+        {stage === 'PENALTY' && <p className="center-tip">惩罚选择中…</p>}
+        {game.lastEvent && (
+          <p className="center-tip center-event" aria-live="polite">
+            {game.lastEvent}
+          </p>
         )}
       </div>
     </div>
