@@ -1,0 +1,11 @@
+# 这些文件在 Linux 容器内被直接读取执行，必须是 LF：
+# .dockerignore 若带 CR，模式会变成 "node_modules\r" 从而匹配不到，构建必挂；
+# *.sh 若带 CR，shebang 会报 bad interpreter。
+.dockerignore text eol=lf
+*.sh text eol=lf
+Dockerfile text eol=lf
+nginx.conf text eol=lf
+*.yml text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.json text eol=lf

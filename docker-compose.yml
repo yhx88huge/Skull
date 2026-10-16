@@ -1,17 +1,17 @@
-version: '3.8'
-
 services:
   server:
     build:
       context: .
       target: server
+    # 只监听宿主机回环，外部一律走 nginx 反代；需要直连调试时改成 "3000:3000"
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       - PORT=3000
-      - DATABASE_URL=${DATABASE_URL}
-      # 0 = off (default); set to 30 / 60 / 90 to enable the turn timer
-      - TURN_TIMER_SECONDS=${TURN_TIMER_SECONDS:-0}
+      # 留空则用文件存储（数据落在 skull-data 卷），填了才走 Postgres
+      - DATABASE_URL=${DATABASE_URL:-}
+      # 0 = 关闭行动计时；建议线上设 60
+      - TURN_TIMER_SECONDS=${TURN_TIMER_SECONDS:-60}
       - RECONNECT_GRACE_MS=60000
       - CORS_ORIGIN=${CORS_ORIGIN:-*}
       - DATA_DIR=/app/data
@@ -19,20 +19,30 @@ services:
       - skull-data:/app/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/healthz"]
+      # 同样不依赖 wget/curl
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://127.0.0.1:3000/healthz',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))",
+        ]
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 10s
 
   web:
     build:
       context: .
       target: web
+    # 默认用 8080：中国大陆 ECS 的 80/443 需要域名备案才能对外访问。
+    # 若已完成备案并解析了域名，改成 "80:80" 即可。
     ports:
-      - "80:80"
-      - "443:443"
+      - "${WEB_PORT:-8080}:80"
     depends_on:
-      - server
+      server:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
